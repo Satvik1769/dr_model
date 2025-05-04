@@ -1,21 +1,60 @@
-import os
 import torch
 import torch.nn as nn
-from torchvision.models import densenet121
+from timm import create_model
+from model_architecture.CBAM import CBAM
+import os
 from torchvision import transforms
 
-# Load pretrained DenseNet-121 and modify the final classification layer
-model = densenet121(pretrained=True)
+
+
+class ViT_CBAM(nn.Module):
+    def __init__(self, model_name='vit_base_patch16_224', num_classes=5, pretrained=True):
+        super(ViT_CBAM, self).__init__()
+        self.vit = create_model(model_name, pretrained=pretrained, num_classes=0)
+        self.cbam = CBAM(in_channels=self.vit.embed_dim)
+        self.classifier = nn.Linear(self.vit.embed_dim, num_classes)
+
+    def forward(self, x):
+        b = x.shape[0]
+        x = self.vit.patch_embed(x)
+        cls_token = self.vit.cls_token.expand(b, -1, -1)
+        x = torch.cat((cls_token, x), dim=1)
+        x = x + self.vit.pos_embed
+        x = self.vit.blocks(x)
+        x = self.vit.norm(x)
+
+        # Extract CLS token and apply CBAM
+        cls_feat = x[:, 0].unsqueeze(-1).unsqueeze(-1)  # reshape to (B, C, 1, 1)
+        cls_feat = self.cbam(cls_feat).squeeze(-1).squeeze(-1)  # back to (B, C)
+        return self.classifier(cls_feat)
+
+
+
+num_classes = 5  # Change based on your dataset
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-num_ftrs = model.classifier.in_features
-model.classifier = nn.Linear(num_ftrs, 5)  # 5 output classes for DR
-model = model.to(device)
-
+model = ViT_CBAM(num_classes=5).to(device)
 model_name = type(model).__name__.lower()
 
 train_losses, val_losses = [], []
 train_accuracies, val_accuracies = [], []
+
+train_transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation(15),
+        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406],
+                            [0.229, 0.224, 0.225])
+    ])
+
+val_transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406],
+                            [0.229, 0.224, 0.225])
+    ])
+
 
 def train(train_loader, val_loader, optimizer, criterion, scheduler, best_val_acc):
     global model

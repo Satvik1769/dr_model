@@ -1,21 +1,67 @@
-import os
+from torchvision import models
 import torch
+from model_architecture.CBAM import CBAM
 import torch.nn as nn
-from torchvision.models import densenet121
-from torchvision import transforms
+import os
 
-# Load pretrained DenseNet-121 and modify the final classification layer
-model = densenet121(pretrained=True)
+class ResNetCBAM(nn.Module):
+    def __init__(self, model_name='resnet50', num_classes=5, pretrained=True):
+        super().__init__()
+        if model_name == 'resnet18':
+            self.model = models.resnet18(pretrained=pretrained)
+        elif model_name == 'resnet34':
+            self.model = models.resnet34(pretrained=pretrained)
+        elif model_name == 'resnet50':
+            self.model = models.resnet50(pretrained=pretrained)
+        elif model_name == 'resnet101':
+            self.model = models.resnet101(pretrained=pretrained)
+        else:
+            raise ValueError("Unsupported ResNet model")
+
+        # Inject CBAM after each layer
+        self.cbam1 = CBAM(256)
+        self.cbam2 = CBAM(512)
+        self.cbam3 = CBAM(1024)
+        self.cbam4 = CBAM(2048)
+
+        in_features = self.model.fc.in_features
+        self.model.fc = nn.Sequential(
+            nn.Dropout(0.3),
+            nn.Linear(in_features, num_classes)
+        )
+
+    def forward(self, x):
+        x = self.model.conv1(x)
+        x = self.model.bn1(x)
+        x = self.model.relu(x)
+        x = self.model.maxpool(x)
+
+        x = self.model.layer1(x)
+        x = self.cbam1(x)
+
+        x = self.model.layer2(x)
+        x = self.cbam2(x)
+
+        x = self.model.layer3(x)
+        x = self.cbam3(x)
+
+        x = self.model.layer4(x)
+        x = self.cbam4(x)
+
+        x = self.model.avgpool(x)
+        x = torch.flatten(x, 1)
+        x = self.model.fc(x)
+        return x
+
+
+num_classes = 5  # Change based on your dataset
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-num_ftrs = model.classifier.in_features
-model.classifier = nn.Linear(num_ftrs, 5)  # 5 output classes for DR
-model = model.to(device)
-
+model = ResNetCBAM(model_name='resnet50', num_classes=5).to(device)
 model_name = type(model).__name__.lower()
 
 train_losses, val_losses = [], []
 train_accuracies, val_accuracies = [], []
+
 
 def train(train_loader, val_loader, optimizer, criterion, scheduler, best_val_acc):
     global model
