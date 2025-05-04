@@ -10,30 +10,33 @@ from torch.utils.data import DataLoader, random_split
 from sklearn.utils.class_weight import compute_class_weight
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report
 
-from model_architecture.inception import model, train
+from model_architecture.vit_cbam import model, train
 
 # -------- Custom Dataset --------
 custom_class_to_idx = {
     'No_DR': 0, 'Mild': 1, 'Moderate': 2, 'Severe': 3, 'Proliferate_DR': 4
 }
 
+if type(model).__name__.lower() == 'vit_cbam':
+    from model_architecture.vit_cbam import train_transform, val_transform 
+else:
+    train_transform = transforms.Compose([
+            transforms.Resize((299, 299)),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(15),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406],
+                                [0.229, 0.224, 0.225])
+        ])
 
-train_transform = transforms.Compose([
-        transforms.Resize((299, 299)),
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomRotation(15),
-        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406],
-                            [0.229, 0.224, 0.225])
-    ])
+    val_transform = transforms.Compose([
+            transforms.Resize((299, 299)),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406],
+                                [0.229, 0.224, 0.225])
+        ])
 
-val_transform = transforms.Compose([
-        transforms.Resize((299, 299)),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406],
-                            [0.229, 0.224, 0.225])
-    ])
 
 class CustomImageFolder(ImageFolder):
     def __init__(self, root, transform=None):
@@ -75,8 +78,8 @@ os.makedirs('./graphs', exist_ok=True)
 
 # Plot: Epoch vs Loss
 plt.figure()
-plt.plot(range(1, 41), train_losses, label="Train Loss")
-plt.plot(range(1, 41), val_losses, label="Train Loss")
+plt.plot(range(1, 16), train_losses, label="Train Loss")
+plt.plot(range(1, 16), val_losses, label="Train Loss")
 plt.xlabel("Epoch")
 plt.ylabel("Loss")
 plt.title("Epoch vs Loss")
@@ -86,8 +89,8 @@ plt.close()
 
 # Plot: Epoch vs Accuracy
 plt.figure()
-plt.plot(range(1, 41), train_accuracies, label="Train Acc")
-plt.plot(range(1, 41), val_accuracies, label="Val Acc")
+plt.plot(range(1, 16), train_accuracies, label="Train Acc")
+plt.plot(range(1, 16), val_accuracies, label="Val Acc")
 plt.xlabel("Epoch")
 plt.ylabel("Accuracy (%)")
 plt.title("Epoch vs Accuracy")
